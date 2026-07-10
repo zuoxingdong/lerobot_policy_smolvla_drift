@@ -1,46 +1,87 @@
 # lerobot_policy_smolvla_drift
 
-SmolVLA-Drift as a [LeRobot](https://github.com/huggingface/lerobot) plugin policy. It swaps
-SmolVLA's flow-matching objective for a one-step **Drifting** (DBPO) objective with **1-NFE**
-inference — same VLM + action expert, byte-identical weights. On LIBERO-Spatial: **90.2% success,
-1 NFE, ~4.4× faster** per chunk than 10-step flow matching.
+A [LeRobot](https://github.com/huggingface/lerobot) plugin policy for **SmolVLA-Drift**.
 
-**Project website:** [zuoxingdong.github.io/drift-vla](https://zuoxingdong.github.io/drift-vla/)
+SmolVLA decodes an action chunk by integrating a flow-matching ODE, which takes 10 forward
+passes of the action expert per chunk. SmolVLA-Drift trains the same network with a one-step
+**Drifting** (DBPO) objective instead: a single forward pass maps noise directly to the chunk.
+
+- **90.2%** success on LIBERO-Spatial (fresh action expert, 30k steps)
+- **1 NFE** per chunk — **~4.4× faster** decode than 10-step flow matching
+- Same VLM + action expert as SmolVLA, byte-identical weight layout
+
+Project website: <https://zuoxingdong.github.io/drift-vla/>
 
 ## Install
 
+Python >= 3.12. Pulls `lerobot[smolvla,dataset]>=0.6.0,<0.7`.
+
+From PyPI:
+
 ```bash
-pip install lerobot_policy_smolvla_drift   # pulls lerobot[smolvla,dataset]>=0.6.0,<0.7 · Python >=3.12
+pip install lerobot_policy_smolvla_drift
 ```
 
-For the LIBERO eval below you also need the benchmark extra: `pip install 'lerobot[libero]'`
-(then pin `pip install 'mujoco==3.3.2'` — newer MuJoCo changes rendered colors).
-
-## Train & evaluate on LIBERO
-
-The winning recipe is the default (G=8, temperatures (0.02, 0.05, 0.2), per-action-dim), so no
-drift flags are needed:
+From GitHub:
 
 ```bash
-# train (fresh action expert + pretrained VLM; effective batch ~64)
-lerobot-train --policy.type=smolvla_drift --policy.load_vlm_weights=true \
+pip install "git+https://github.com/zuoxingdong/lerobot_policy_smolvla_drift.git"
+```
+
+From a local clone (editable):
+
+```bash
+git clone https://github.com/zuoxingdong/lerobot_policy_smolvla_drift.git
+cd lerobot_policy_smolvla_drift
+pip install -e .
+```
+
+The LIBERO evaluation below additionally needs:
+
+```bash
+pip install "lerobot[libero]"
+pip install "mujoco==3.3.2"   # newer MuJoCo changes rendered colors
+```
+
+## Train on LIBERO
+
+The winning recipe (G=8, temperatures (0.02, 0.05, 0.2), per-action-dim) is the config default,
+so no drift flags are needed:
+
+```bash
+lerobot-train \
+  --policy.type=smolvla_drift \
+  --policy.load_vlm_weights=true \
   --policy.n_action_steps=1 \
-  --dataset.repo_id=lerobot/libero --batch_size=64 --seed=1000 --steps=30000
+  --dataset.repo_id=lerobot/libero \
+  --batch_size=64 \
+  --seed=1000 \
+  --steps=30000
 ```
 
 `--policy.n_action_steps=1` (closed-loop replanning, saved into the checkpoint) is load-bearing:
-the 90.2% was measured closed-loop; executing the full 50-step chunk open-loop scores far lower.
+the 90.2% was measured closed-loop. Executing the full 50-step chunk open-loop scores far lower.
+
+## Evaluate on LIBERO-Spatial
+
+Needs a graphics-capable node for the MuJoCo/LIBERO renderer. The 90.2% protocol is 20 episodes
+on each of the 10 `libero_spatial` tasks, seed 1000:
 
 ```bash
-# evaluate (needs a graphics-capable node for the MuJoCo/LIBERO renderer)
-# 90.2% protocol: 20 episodes × each of the 10 libero_spatial tasks, seed 1000.
 for task_id in 0 1 2 3 4 5 6 7 8 9; do
-  lerobot-eval --policy.path=<checkpoint-path-or-hub-id> \
+  lerobot-eval \
+    --policy.path=<checkpoint-path-or-hub-id> \
     --policy.n_action_steps=1 \
-    --env.type=libero --env.task=libero_spatial --env.task_ids="[$task_id]" \
-    --eval.n_episodes=20 --eval.batch_size=2 --eval.use_async_envs=true \
-    --seed=1000 --output_dir=eval/task_${task_id}
-done   # then aggregate the ten eval_info.json files
+    --env.type=libero \
+    --env.task=libero_spatial \
+    --env.task_ids="[$task_id]" \
+    --eval.n_episodes=20 \
+    --eval.batch_size=2 \
+    --eval.use_async_envs=true \
+    --seed=1000 \
+    --output_dir=eval/task_${task_id}
+done
+# then aggregate the ten eval_info.json files
 ```
 
 ## Use from Python
@@ -58,6 +99,8 @@ plugin inside the `lerobot-*` CLIs, but not in your own Python process.
 
 ## Provenance & license
 
-Faithfully vendored from LeRobot's SmolVLA (fork `zuoxingdong/smolvla-drift` @ `15778da0`) — only
-class renames, the registration string, import fixes, drift-recipe defaults, and one docstring.
-Apache-2.0 (`LICENSE`); the original HuggingFace copyright headers are retained in each source file.
+Faithfully vendored from LeRobot's SmolVLA (fork
+[`zuoxingdong/smolvla-drift`](https://github.com/zuoxingdong/smolvla-drift) @
+[`15778da0`](https://github.com/zuoxingdong/smolvla-drift/commit/15778da0)) — only class renames,
+the registration string, import fixes, drift-recipe defaults, and one docstring. Apache-2.0
+(`LICENSE`); the original HuggingFace copyright headers are retained in each source file.
