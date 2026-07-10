@@ -20,7 +20,7 @@ Hugging Face) with the one-step "Drifting" (DBPO) objective and 1-NFE inference.
 
 Install:
 ```bash
-pip install lerobot_policy_smolvla_drift
+pip install "git+https://github.com/zuoxingdong/lerobot_policy_smolvla_drift.git"
 ```
 
 Example of training fresh (pretrained VLM, fresh action expert) on LIBERO — the winning

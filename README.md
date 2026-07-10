@@ -16,12 +16,6 @@ Project website: <https://zuoxingdong.github.io/drift-vla/>
 
 Python >= 3.12. Pulls `lerobot[smolvla,dataset]>=0.6.0,<0.7`.
 
-From PyPI:
-
-```bash
-pip install lerobot_policy_smolvla_drift
-```
-
 From GitHub:
 
 ```bash
