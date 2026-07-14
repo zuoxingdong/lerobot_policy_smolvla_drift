@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2026 Xingdong Zuo. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Drifting loss (torch-only) for SmolVLA's one-step "Drifting" objective.
+"""Drifting loss (torch-only) for the one-step "Drifting" (DBPO) objective.
 
 Faithful structural port of the official JAX `drift_loss` (lambertae/drifting,
 `drift_loss.py`) restricted to the surface this integration uses: the model's
@@ -26,9 +26,10 @@ negatives it is numerically the identity, and re-adding it is one concat away.
 Layout convention: an optional leading GROUP dim batches independent matching
 problems that must NOT share statistics. Within one group, the distance ruler
 `scale` and each temperature's force RMS are global scalars; everything else is
-local to a single (group, b) matching problem. The SmolVLA integration uses
-groups = chunk timesteps (per-timestep mode) or one group over the flattened
-chunk (flat mode), which makes the two granularities a single code path.
+local to a single (group, b) matching problem. The policy integration uses
+groups = chunk timesteps (per-timestep mode), REAL action dims (per-dim mode),
+or one group over the flattened chunk (flat mode), which makes the
+granularities a single code path.
 
 Gradient contract: the drifted goal is frozen (computed under `no_grad`, with
 AMP autocast force-disabled -- see `drift_loss_grouped`); gradient flows only

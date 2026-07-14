@@ -9,6 +9,7 @@ passes of the action expert per chunk. SmolVLA-Drift trains the same network wit
 - **90.2%** success on LIBERO-Spatial (fresh action expert, 30k steps)
 - **1 NFE** per chunk — **~4.4× faster** decode than 10-step flow matching
 - Same VLM + action expert as SmolVLA, byte-identical weight layout
+- Optional **KeyStone** test-time selection (K one-step candidates, ~zero added latency)
 
 Project website: <https://zuoxingdong.github.io/drift-vla/>
 
@@ -78,6 +79,13 @@ done
 # then aggregate the ten eval_info.json files
 ```
 
+KeyStone test-time selection is an eval-time flag set (helps checkpoints with
+selection-recoverable failures; ~zero added latency):
+
+```bash
+  --policy.test_time_samples=8 --policy.test_time_clusters=4 --policy.test_time_unimodal_tau=0.3
+```
+
 ## Use from Python
 
 ```python
@@ -96,5 +104,6 @@ plugin inside the `lerobot-*` CLIs, but not in your own Python process.
 Faithfully vendored from LeRobot's SmolVLA (fork
 [`zuoxingdong/smolvla-drift`](https://github.com/zuoxingdong/smolvla-drift) @
 [`15778da0`](https://github.com/zuoxingdong/smolvla-drift/commit/15778da0)) — only class renames,
-the registration string, import fixes, drift-recipe defaults, and one docstring. Apache-2.0
-(`LICENSE`); the original HuggingFace copyright headers are retained in each source file.
+the registration string, import fixes, drift-recipe defaults, and one docstring;
+`drifting_util.py` and `keystone_util.py` are new. Apache-2.0 (`LICENSE`); the original
+HuggingFace copyright headers are retained in the vendored files.

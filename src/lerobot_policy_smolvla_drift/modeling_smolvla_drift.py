@@ -66,6 +66,7 @@ from lerobot.policies.utils import (
 )
 from .configuration_smolvla_drift import SmolVLADriftConfig
 from .drifting_util import drift_loss_grouped
+from .keystone_util import cluster_medoid_select
 from .smolvlm_with_expert import SmolVLMWithExpertModel
 
 
@@ -621,6 +622,10 @@ class VLAFlowMatchingDrift(nn.Module):
         self.prefix_length = self.config.prefix_length
         self.rtc_processor = rtc_processor
 
+        # KeyStone test-time selection diagnostics (written by _select_test_time_chunk,
+        # read offline; never on the hot path).
+        self.last_test_time_info = None
+
         # Compile model if requested
         if config.compile_model:
             torch.set_float32_matmul_precision("high")
@@ -961,8 +966,8 @@ class VLAFlowMatchingDrift(nn.Module):
         degenerates to a learned bias (W_t @ e(1.0) is a constant vector folded
         into the fusion MLP's bias), so a fresh expert trains over exactly the
         same function class as a time-free head while keeping the architecture
-        byte-identical to the FM baseline for A/B comparability. GR00T-drifting
-        and DBPO pin their generators' time input the same way.
+        byte-identical to the FM baseline for A/B comparability. DBPO pins its
+        generator's time input the same way.
         """
         null_time = torch.ones((noise.shape[0],), dtype=torch.float32, device=noise.device)
         return self.denoise_step(
@@ -1086,6 +1091,29 @@ class VLAFlowMatchingDrift(nn.Module):
         return loss, info
 
     @torch.no_grad()
+    def _select_test_time_chunk(self, candidates):
+        """KeyStone guarded cluster-medoid selection over [B, K, chunk, max_action_dim].
+
+        Distances see only the REAL action dims (padding columns carry untrained
+        junk and must not vote), but the returned chunk keeps the full width so
+        downstream slicing is unchanged. Per-call diagnostics land on
+        `self.last_test_time_info` for offline inspection; nothing reads it on the
+        hot path.
+        """
+        real_dim = candidates.shape[-1]
+        if self.config.action_feature is not None:
+            real_dim = self.config.action_feature.shape[0]
+        flat = candidates[..., :real_dim].flatten(2)  # [B, K, chunk * real_dim]
+        indices, info = cluster_medoid_select(
+            flat,
+            num_clusters=self.config.test_time_clusters,
+            unimodal_tau=self.config.test_time_unimodal_tau,
+        )
+        self.last_test_time_info = info
+        batch_idx = torch.arange(candidates.shape[0], device=candidates.device)
+        return candidates[batch_idx, indices]
+
+    @torch.no_grad()
     def sample_actions_drifting(
         self, images, img_masks, lang_tokens, lang_masks, state, noise=None, **kwargs
     ):
@@ -1095,14 +1123,27 @@ class VLAFlowMatchingDrift(nn.Module):
         SAME sampler `f` as `forward_drifting`, so the trained objective and
         the deployed decode are the same function. RTC is rejected at config
         validation: there is no denoising trajectory for it to hook into.
+
+        KeyStone: with `test_time_samples` K > 1 (and no caller noise), draw K
+        candidate chunks from the SAME machinery training used for its G samples
+        (`_sample_one_step_n`: cache expanded once, ONE batched expert pass) and
+        return the guarded cluster-medoid chunk — still 1 NFE per candidate.
         """
         bsize = state.shape[0]
         device = state.device
-        if noise is None:
-            noise = self.sample_noise((bsize, self.config.chunk_size, self.config.max_action_dim), device)
+        num_candidates = self.config.test_time_samples if noise is None else 1
         prefix_pad_masks, past_key_values = self._build_prefix_cache(
             images, img_masks, lang_tokens, lang_masks, state
         )
+
+        if num_candidates > 1:
+            gen = self._sample_one_step_n(num_candidates, bsize, prefix_pad_masks, past_key_values, device)
+            if not torch.isfinite(gen).all():
+                raise FloatingPointError("SmolVLA KeyStone candidate sampling produced non-finite values.")
+            return self._select_test_time_chunk(gen)
+
+        if noise is None:
+            noise = self.sample_noise((bsize, self.config.chunk_size, self.config.max_action_dim), device)
         actions = self._sample_one_step(noise, prefix_pad_masks, past_key_values)
         if not torch.isfinite(actions).all():
             bad_count = int((~torch.isfinite(actions)).sum().item())

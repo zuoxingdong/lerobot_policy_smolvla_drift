@@ -115,16 +115,22 @@ class SmolVLADriftConfig(PreTrainedConfig):
     # Kernel temperatures used by the canonical Drift field.
     drifting_temperatures: tuple[float, ...] = (0.02, 0.05, 0.2)
     # True: one drift_loss call per chunk timestep on [n_valid, G, real_dim]
-    # slices, each with its own data-dependent scale (DBPO `per_timestep_loss`,
-    # the E1-validated recipe). False (default): a single call on the flattened
-    # chunk [B, G, chunk*real_dim] with one global scale per observation;
+    # slices, each with its own data-dependent scale (DBPO `per_timestep_loss`).
+    # False (default): a single call on the flattened chunk
+    # [B, G, chunk*real_dim] with one global scale per observation;
     # padded (b, t) rows are zero-masked in both gen and pos.
     drifting_per_timestep_loss: bool = False
     # Per-action-dim matching: groups = the real action dims; each dim's
     # time-series over the chunk (padded steps zero-masked, like flat-chunk) is
-    # matched across the G samples. Mutually exclusive with per-timestep. v4
-    # port of the E1 PERDIM decomposition onto the grouped drift_loss.
+    # matched across the G samples. Mutually exclusive with per-timestep.
     drifting_perdim_loss: bool = True
+
+    # KeyStone test-time self-consistency selection (drift path only). With
+    # `test_time_samples` K > 1, inference draws K one-step candidate chunks and
+    # returns the guarded cluster-medoid (see `keystone_util.py`). K=1 = off.
+    test_time_samples: int = 1
+    test_time_clusters: int = 2
+    test_time_unimodal_tau: float = 0.3
 
     def __post_init__(self):
         super().__post_init__()
@@ -177,6 +183,29 @@ class SmolVLADriftConfig(PreTrainedConfig):
             # NOTE: `num_steps` is a flow-matching integrator setting and is never
             # read on the drift path -- `sample_actions` dispatches to the one-step
             # drift sampler before the Euler loop. It is deliberately left untouched.
+
+        # KeyStone test-time selection validation.
+        if self.test_time_samples < 1:
+            raise ValueError(f"`test_time_samples` must be >= 1, got {self.test_time_samples}.")
+        if self.test_time_samples > 1:
+            if not self.use_drifting_loss:
+                raise ValueError(
+                    "`test_time_samples` > 1 (KeyStone) requires `use_drifting_loss=True`: candidate "
+                    "selection hooks into the one-step drift sampler, not the flow-matching integrator."
+                )
+            if self.rtc_config is not None:
+                raise ValueError(
+                    "`test_time_samples` > 1 is incompatible with `rtc_config`: RTC guides the "
+                    "denoising trajectory, KeyStone selects among independent one-step candidates."
+                )
+            if self.test_time_clusters < 2:
+                raise ValueError(
+                    f"`test_time_clusters` must be >= 2 when selection is on, got {self.test_time_clusters}."
+                )
+            if not self.test_time_unimodal_tau > 0:
+                raise ValueError(
+                    f"`test_time_unimodal_tau` must be > 0, got {self.test_time_unimodal_tau}."
+                )
 
     def validate_features(self) -> None:
         for i in range(self.empty_cameras):
