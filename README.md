@@ -1,17 +1,37 @@
 # lerobot_policy_smolvla_drift
 
+[![CI](https://github.com/zuoxingdong/lerobot_policy_smolvla_drift/actions/workflows/ci.yml/badge.svg)](https://github.com/zuoxingdong/lerobot_policy_smolvla_drift/actions/workflows/ci.yml)
+
 A [LeRobot](https://github.com/huggingface/lerobot) plugin policy for **SmolVLA-Drift**.
 
 SmolVLA decodes an action chunk by integrating a flow-matching ODE, which takes 10 forward
 passes of the action expert per chunk. SmolVLA-Drift trains the same network with a one-step
 **Drifting** (DBPO) objective instead: a single forward pass maps noise directly to the chunk.
 
-- **90.2%** success on LIBERO-Spatial (fresh action expert, 30k steps)
-- **1 NFE** per chunk — **~4.4× faster** decode than 10-step flow matching
+- **87.6%** average success over the four LIBERO suites, vs 84.9% for 10-step flow matching
+  (**87.9%** with KeyStone)
+- **1 NFE** per chunk — **50.6 ms** vs 222.6 ms per chunk (**~4.4× faster**)
 - Same VLM + action expert as SmolVLA, byte-identical weight layout
 - Optional **KeyStone** test-time selection (K one-step candidates, ~zero added latency)
 
 Project website: <https://zuoxingdong.github.io/drift-vla/>
+
+## Results
+
+LIBERO success rates, 50 episodes/task × 3 eval seeds, closed-loop replanning (numbers from
+the [project page](https://zuoxingdong.github.io/drift-vla/)):
+
+| Policy | NFE | Spatial | Object | Goal | Long | Avg |
+|---|---:|---:|---:|---:|---:|---:|
+| **SmolVLA-Drift** | 1 | 94.4 ±1.0 | **92.5 ±0.7** | **89.2 ±0.8** | **74.3 ±0.7** | **87.6** |
+| **+ KeyStone** | 8×1 | **96.1 ±0.2** | **93.6 ±0.3** | 89.3 ±0.8 | 72.7 ±1.5 | **87.9** |
+| SmolVLA (flow matching) | 10 | 94.1 ±0.2 | 83.9 ±1.1 | 87.5 ±0.6 | 74.0 ±1.6 | 84.9 |
+
+Decode latency at batch 1: **50.6 ms/chunk** (Drift) vs 222.6 ms (10-step flow matching).
+Expert-only training (frozen VLM) on LIBERO-Spatial: Drift 90.8 ±2.2 vs flow matching 90.2 ±2.2.
+
+The quick recipe below reports **90.2%** on LIBERO-Spatial under its own lighter protocol
+(20 episodes, single seed); the table above is the full protocol.
 
 ## Install
 
